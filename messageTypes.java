@@ -1,4 +1,6 @@
-
+import java.nio.ByteBuffer;
+import java.io.DataInputStream;
+import java.io.IOException;
 
 enum MessageType {
     CHOKE,
