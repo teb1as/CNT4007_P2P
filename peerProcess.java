@@ -1,8 +1,23 @@
 import java.io.*;
 import java.net.*;
+import java.util.*;
 
 public class peerProcess {
     private int peerID;
+    
+    private int numberOfPreferredNeighbors;
+    private int unchokingInterval;
+    private int optimisticUnchokingInterval;
+    private String fileName;
+    private int fileSize;
+    private int pieceSize;
+
+    private String hostName;
+    private int port;
+    private int hasFile;
+    private Map<Integer, PeerInfo> allPeers;
+    private ServerSocket serverSocket;
+    private Map<Integer, Socket> connections;
     
     public static void main(String[] args) {
         // check if user gave a peer id
@@ -24,35 +39,255 @@ public class peerProcess {
     
     public peerProcess(int peerID) {
         this.peerID = peerID;
+        this.allPeers = new HashMap<>();
+        this.connections = new HashMap<>();
+        loadConfiguration();
+        loadPeerInfo();
+        createPeerDirectory();
     }
     
     public void start() {
-        System.out.println("peer " + peerID + " started");
+        System.out.println("=== PEER " + peerID + " STARTED!! ===");
         
         System.out.println("minimal implementation for testing");
         System.out.println("peer ID: " + peerID);
+        // System.out.println("host: " + hostName + ":" + port);
+        // System.out.println("has file: " + (hasFile == 1 ? "yes" : "no"));
         
-        String fileName = "thefile";
-        int fileSize = 2167705;
-        int pieceSize = 16384;
-        
-        System.out.println("file name is " + fileName);
-        System.out.println("file size is " + fileSize + " bytes");
-        System.out.println("piece size is " + pieceSize + " bytes");
+        // System.out.println("file name is " + fileName);
+        // System.out.println("file size is " + fileSize + " bytes");
+        // System.out.println("piece size is " + pieceSize + " bytes");
         
         int numPieces = (fileSize + pieceSize - 1) / pieceSize;
-        System.out.println("number of pieces: " + numPieces);
+        // System.out.println("number of pieces: " + numPieces);
         
-        Message chokeMsg = Message.choke();
-        System.out.println("created choke message");
+        // System.out.println("preferred neighbors: " + numberOfPreferredNeighbors);
+        // System.out.println("unchoking interval: " + unchokingInterval + " seconds");
+        // System.out.println("optimistic unchoking interval: " + optimisticUnchokingInterval + " seconds");
+        
+        // System.out.println("total peers in network: " + allPeers.size());
+        
+        startServer();
+        connectToLowerPeers();
         
         try {
-            Thread.sleep(2000);
+            Thread.sleep(5000);
         } 
+
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
         
-        System.out.println("peer " + peerID + " finished");
+        cleanup();
+        System.out.println("============= PEER " + peerID + " FINISHED!! ==================");
+        System.out.println();
+    }
+    
+    private void loadConfiguration() {
+
+        try (BufferedReader reader = new BufferedReader(new FileReader("project_config_file_small/project_config_file_small/Common.cfg"))) {
+            
+            String line;
+
+            while ((line = reader.readLine()) != null) {
+
+                String[] parts = line.split(" ");
+
+                switch (parts[0]) {
+                    case "NumberOfPreferredNeighbors":
+                        numberOfPreferredNeighbors = Integer.parseInt(parts[1]);
+                        break;
+                    case "UnchokingInterval":
+                        unchokingInterval = Integer.parseInt(parts[1]);
+                        break;
+                    case "OptimisticUnchokingInterval":
+                        optimisticUnchokingInterval = Integer.parseInt(parts[1]);
+                        break;
+                    case "FileName":
+                        fileName = parts[1];
+                        break;
+                    case "FileSize":
+                        fileSize = Integer.parseInt(parts[1]);
+                        break;
+                    case "PieceSize":
+                        pieceSize = Integer.parseInt(parts[1]);
+                        break;
+                }
+
+            }
+
+            // System.out.println("loaded configuration from Common.cfg");
+        } 
+        
+        catch (IOException e) {
+
+            System.err.println("error loading Common.cfg: " + e.getMessage());
+            System.exit(1);
+            
+        }
+    }
+
+    private void loadPeerInfo() {
+
+        try (BufferedReader reader = new BufferedReader(new FileReader("project_config_file_small/project_config_file_small/PeerInfo.cfg"))) {
+            
+            String line;
+
+            while ((line = reader.readLine()) != null) {
+
+                if (line.trim().startsWith("#") || line.trim().isEmpty()) {
+                    continue;
+                }
+
+                String[] parts = line.trim().split("\\s+");
+
+                if (parts.length >= 4) {
+                    
+                    int id = Integer.parseInt(parts[0]);
+                    String host = parts[1];
+                    int port = Integer.parseInt(parts[2]);
+                    int hasFile = Integer.parseInt(parts[3]);
+                    
+                    allPeers.put(id, new PeerInfo(id, host, port, hasFile));
+                    
+                    if (id == peerID) {
+                        this.hostName = host;
+                        this.port = port;
+                        this.hasFile = hasFile;
+                    }
+
+                }
+            }
+
+            // System.out.println("loaded peer info from PeerInfo.cfg");
+        } 
+
+        catch (IOException e) {
+            System.err.println("error loading PeerInfo.cfg: " + e.getMessage());
+            System.exit(1);
+        }
+    }
+
+    private void createPeerDirectory() {
+        
+        try {
+            
+            File peerDir = new File("peer_" + peerID);
+            
+            if (!peerDir.exists()) {
+                peerDir.mkdir();
+                // System.out.println("created directory: peer_" + peerID);
+            } 
+
+            else {
+                // System.out.println("directory already exists: peer_" + peerID);
+            }
+
+        } 
+        
+        catch (Exception e) {
+            System.err.println("error creating peer directory: " + e.getMessage());
+        }
+
+    }
+    
+    private void startServer() {
+        
+        try {
+           
+            serverSocket = new ServerSocket(port);
+            System.out.println("server listening on port " + port);
+            
+            Thread serverThread = new Thread(() -> {
+                try {
+                    
+                    while (true) {
+                        Socket clientSocket = serverSocket.accept();
+                        System.out.println("accepted connection from " + clientSocket.getInetAddress());
+                        handleIncomingConnection(clientSocket);
+                    }
+
+                } 
+                
+                catch (IOException e) {
+                    if (!serverSocket.isClosed()) {
+                        System.err.println("server error: " + e.getMessage());
+                    }
+                }
+
+            });
+
+            serverThread.setDaemon(true);
+            serverThread.start();
+            
+        } 
+        
+        catch (IOException e) {
+            System.err.println("error starting server: " + e.getMessage());
+        }
+
+    }
+    
+    private void connectToLowerPeers() {
+
+        for (PeerInfo peer : allPeers.values()) {
+            if (peer.getPeerID() < peerID) {
+                connectToPeer(peer);
+            }
+        }
+
+    }
+    
+    private void connectToPeer(PeerInfo peer) {
+        
+        try {
+            Socket socket = new Socket(peer.getHostName(), peer.getPort());
+            System.out.println("connected to peer " + peer.getPeerID());
+            connections.put(peer.getPeerID(), socket);
+        } 
+        
+        catch (IOException e) {
+            System.err.println("error connecting to peer " + peer.getPeerID() + ": " + e.getMessage());
+        }
+
+    }
+    
+    private void handleIncomingConnection(Socket socket) {
+        try {
+            System.out.println("handling incoming connection from " + socket.getInetAddress());
+            connections.put(999, socket);
+        } 
+        
+        catch (Exception e) {
+
+            System.err.println("error handling connection: " + e.getMessage());
+            
+            try {
+                socket.close();
+            } 
+            catch (IOException ex) {
+
+            }
+        }
+
+    }
+    
+    private void cleanup() {
+
+        System.out.println("cleaning up connections");
+
+        try {
+            if (serverSocket != null) {
+                serverSocket.close();
+            }
+
+            for (Socket socket : connections.values()) {
+                socket.close();
+            }
+
+        } 
+        
+        catch (IOException e) {
+        }
     }
 }

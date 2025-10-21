@@ -1,0 +1,8 @@
+*.class
+bin/
+peer_*/
+.DS_Store
+Thumbs.db
+*.iml
+.idea/
+.vscode/

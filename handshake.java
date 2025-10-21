@@ -2,7 +2,7 @@ import java.io.*;
 import java.nio.ByteBuffer;
 
 class Handshake {
-    private static final String HANDSHAKE_HEADER = "P2PFILESHARING";
+    private static final String HANDSHAKE_HEADER = "P2PFILESHARINGPROJ";
     private int peerID;
     
     public Handshake(int peerID) {
