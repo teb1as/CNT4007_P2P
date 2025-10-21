@@ -21,9 +21,13 @@ class Message {
     public int getLength() {
         return length;
     }
+    
+    public byte[] getPayload() {
+        return payload;
+    }
 
     public byte[] toBytes() {
-        ByteBuffer buffer = ByteBuffer.allocate(length);
+        ByteBuffer buffer = ByteBuffer.allocate(4 + 1 + payload.length);
         buffer.putInt(length);
         buffer.put((byte)type.ordinal());
         buffer.put(payload);

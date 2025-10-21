@@ -19,6 +19,11 @@ public class peerProcess {
     private ServerSocket serverSocket;
     private Map<Integer, Socket> connections;
     
+    // Bitfield tracking
+    private int numPieces;
+    private boolean[] bitfield;  // true if we have the piece
+    private Map<Integer, boolean[]> peerBitfields;  // bitfields of connected peers
+    
     public static void main(String[] args) {
         // check if user gave a peer id
         if (args.length != 1) {
@@ -41,8 +46,10 @@ public class peerProcess {
         this.peerID = peerID;
         this.allPeers = new HashMap<>();
         this.connections = new HashMap<>();
+        this.peerBitfields = new HashMap<>();
         loadConfiguration();
         loadPeerInfo();
+        initializeBitfield();
         createPeerDirectory();
     }
     
@@ -168,6 +175,59 @@ public class peerProcess {
         }
     }
 
+    private void initializeBitfield() {
+        numPieces = (fileSize + pieceSize - 1) / pieceSize;
+        bitfield = new boolean[numPieces];
+        
+        // If this peer has the complete file, set all bits to true
+        if (hasFile == 1) {
+            for (int i = 0; i < numPieces; i++) {
+                bitfield[i] = true;
+            }
+            System.out.println("initialized bitfield: peer has all " + numPieces + " pieces");
+        } else {
+            System.out.println("initialized bitfield: peer has 0/" + numPieces + " pieces");
+        }
+    }
+    
+    private byte[] createBitfieldBytes() {
+        // Calculate number of bytes needed (8 bits per byte)
+        int numBytes = (numPieces + 7) / 8;
+        byte[] bitfieldBytes = new byte[numBytes];
+        
+        for (int i = 0; i < numPieces; i++) {
+            if (bitfield[i]) {
+                int byteIndex = i / 8;
+                int bitIndex = 7 - (i % 8);  // MSB first
+                bitfieldBytes[byteIndex] |= (1 << bitIndex);
+            }
+        }
+        
+        return bitfieldBytes;
+    }
+    
+    private void processBitfield(int peerID, byte[] bitfieldBytes) {
+        boolean[] peerBitfield = new boolean[numPieces];
+        
+        for (int i = 0; i < numPieces; i++) {
+            int byteIndex = i / 8;
+            int bitIndex = 7 - (i % 8);  // MSB first
+            if (byteIndex < bitfieldBytes.length) {
+                peerBitfield[i] = ((bitfieldBytes[byteIndex] >> bitIndex) & 1) == 1;
+            }
+        }
+        
+        peerBitfields.put(peerID, peerBitfield);
+        
+        // Count how many pieces the peer has
+        int piecesCount = 0;
+        for (boolean hasPiece : peerBitfield) {
+            if (hasPiece) piecesCount++;
+        }
+        
+        System.out.println("peer " + peerID + " has " + piecesCount + "/" + numPieces + " pieces");
+    }
+    
     private void createPeerDirectory() {
         
         try {
@@ -243,7 +303,41 @@ public class peerProcess {
         try {
             Socket socket = new Socket(peer.getHostName(), peer.getPort());
             System.out.println("connected to peer " + peer.getPeerID());
-            connections.put(peer.getPeerID(), socket);
+            
+            // Send handshake
+            DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+            Handshake handshake = new Handshake(peerID);
+            out.write(handshake.toBytes());
+            out.flush();
+            System.out.println("sent handshake to peer " + peer.getPeerID());
+            
+            // Receive handshake response
+            DataInputStream in = new DataInputStream(socket.getInputStream());
+            Handshake receivedHandshake = Handshake.read(in);
+            
+            if (receivedHandshake.getPeerID() == peer.getPeerID()) {
+                System.out.println("handshake validated for peer " + peer.getPeerID());
+                connections.put(peer.getPeerID(), socket);
+                
+                // Exchange bitfield messages
+                // Send our bitfield
+                byte[] bitfieldBytes = createBitfieldBytes();
+                Message bitfieldMsg = Message.bitfield(bitfieldBytes);
+                out.write(bitfieldMsg.toBytes());
+                out.flush();
+                System.out.println("sent bitfield to peer " + peer.getPeerID());
+                
+                // Receive their bitfield
+                Message receivedMsg = Message.read(in);
+                if (receivedMsg.getType() == MessageType.BITFIELD) {
+                    processBitfield(peer.getPeerID(), receivedMsg.getPayload());
+                    System.out.println("received bitfield from peer " + peer.getPeerID());
+                }
+            } else {
+                System.err.println("handshake failed: expected peer " + peer.getPeerID() + 
+                                 ", got peer " + receivedHandshake.getPeerID());
+                socket.close();
+            }
         } 
         
         catch (IOException e) {
@@ -255,7 +349,42 @@ public class peerProcess {
     private void handleIncomingConnection(Socket socket) {
         try {
             System.out.println("handling incoming connection from " + socket.getInetAddress());
-            connections.put(999, socket);
+            
+            // Receive handshake from connecting peer
+            DataInputStream in = new DataInputStream(socket.getInputStream());
+            Handshake receivedHandshake = Handshake.read(in);
+            int remotePeerID = receivedHandshake.getPeerID();
+            
+            // Send our handshake back
+            DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+            Handshake handshake = new Handshake(peerID);
+            out.write(handshake.toBytes());
+            out.flush();
+            System.out.println("sent handshake to peer " + remotePeerID);
+            
+            // Validate that this peer is in our peer list
+            if (allPeers.containsKey(remotePeerID)) {
+                System.out.println("handshake completed with peer " + remotePeerID);
+                connections.put(remotePeerID, socket);
+                
+                // Exchange bitfield messages
+                // Send our bitfield
+                byte[] bitfieldBytes = createBitfieldBytes();
+                Message bitfieldMsg = Message.bitfield(bitfieldBytes);
+                out.write(bitfieldMsg.toBytes());
+                out.flush();
+                System.out.println("sent bitfield to peer " + remotePeerID);
+                
+                // Receive their bitfield
+                Message receivedMsg = Message.read(in);
+                if (receivedMsg.getType() == MessageType.BITFIELD) {
+                    processBitfield(remotePeerID, receivedMsg.getPayload());
+                    System.out.println("received bitfield from peer " + remotePeerID);
+                }
+            } else {
+                System.err.println("unknown peer " + remotePeerID + " tried to connect");
+                socket.close();
+            }
         } 
         
         catch (Exception e) {
