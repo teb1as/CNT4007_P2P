@@ -60,7 +60,7 @@ class Message {
     }
 
     public static Message piece(int pieceIndex, byte[] data) {
-        return new Message(5 + data.length, MessageType.PIECE, ByteBuffer.allocate(4).putInt(pieceIndex).put(data).array());
+        return new Message(5 + data.length, MessageType.PIECE, ByteBuffer.allocate(4 + data.length).putInt(pieceIndex).put(data).array());
     }
 
     public static Message unchoke() {
