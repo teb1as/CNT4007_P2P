@@ -119,7 +119,7 @@ public class peerProcess {
         }, optimisticUnchokingInterval * 1000, optimisticUnchokingInterval * 1000);
         
         try {
-            Thread.sleep(20000);
+            Thread.sleep(120000); 
         } 
 
         catch (InterruptedException e) {
@@ -135,7 +135,7 @@ public class peerProcess {
     
     private void loadConfiguration() {
 
-        try (BufferedReader reader = new BufferedReader(new FileReader("project_config_file_small/project_config_file_small/Common.cfg"))) {
+        try (BufferedReader reader = new BufferedReader(new FileReader("project_config_file_large/Common.cfg"))) {
             
             String line;
 
@@ -179,7 +179,7 @@ public class peerProcess {
 
     private void loadPeerInfo() {
 
-        try (BufferedReader reader = new BufferedReader(new FileReader("project_config_file_small/project_config_file_small/PeerInfo.cfg"))) {
+        try (BufferedReader reader = new BufferedReader(new FileReader("project_config_file_large/PeerInfo.cfg"))) {
             
             String line;
 
@@ -374,12 +374,25 @@ public class peerProcess {
         
         if (hasFile == 1) {
             Collections.shuffle(interestedPeers);
-        } else {
-            interestedPeers.sort((p1, p2) -> {
-                long rate1 = downloadRates.getOrDefault(p1, 0L);
-                long rate2 = downloadRates.getOrDefault(p2, 0L);
-                return Long.compare(rate2, rate1);
-            });
+        } 
+        
+        else {
+            Map<Long, List<Integer>> rateGroups = new HashMap<>();
+            for (Integer peerID : interestedPeers) {
+                long rate = downloadRates.getOrDefault(peerID, 0L);
+                rateGroups.computeIfAbsent(rate, k -> new ArrayList<>()).add(peerID);
+            }
+            
+            List<Long> sortedRates = new ArrayList<>(rateGroups.keySet());
+            Collections.sort(sortedRates, Collections.reverseOrder());
+            
+            interestedPeers.clear();
+            Random random = new Random();
+            for (Long rate : sortedRates) {
+                List<Integer> peersAtRate = rateGroups.get(rate);
+                Collections.shuffle(peersAtRate, random);
+                interestedPeers.addAll(peersAtRate);
+            }
         }
         
         int numToSelect = Math.min(numberOfPreferredNeighbors, interestedPeers.size());
@@ -407,12 +420,21 @@ public class peerProcess {
             }
         }
         
+        Set<Integer> oldPreferredNeighbors = new HashSet<>(preferredNeighbors);
         preferredNeighbors = newPreferredNeighbors;
         
-        if (!preferredNeighbors.isEmpty()) {
+        if (!preferredNeighbors.equals(oldPreferredNeighbors) && !preferredNeighbors.isEmpty()) {
             System.out.println("preferred neighbors: " + preferredNeighbors);
-            String neighborList = preferredNeighbors.toString().replaceAll("[\\[\\] ]", "");
-            log("Peer " + peerID + " has the preferred neighbors " + neighborList + ".");
+            
+            List<Integer> sortedList = new ArrayList<>(preferredNeighbors);
+            Collections.sort(sortedList);
+            StringBuilder neighborList = new StringBuilder();
+            for (int i = 0; i < sortedList.size(); i++) {
+                if (i > 0) neighborList.append(",");
+                neighborList.append(sortedList.get(i));
+            }
+            
+            log("Peer " + peerID + " has the preferred neighbors " + neighborList.toString() + ".");
         }
     }
     
@@ -431,23 +453,29 @@ public class peerProcess {
             int randomIndex = new Random().nextInt(chokedInterestedPeers.size());
             Integer newOptimistic = chokedInterestedPeers.get(randomIndex);
             
-            if (optimisticallyUnchokedPeer != null && !optimisticallyUnchokedPeer.equals(newOptimistic)) {
-                try {
-                    if (!preferredNeighbors.contains(optimisticallyUnchokedPeer)) {
-                        sendChokeMessage(optimisticallyUnchokedPeer);
+            if (optimisticallyUnchokedPeer == null || !newOptimistic.equals(optimisticallyUnchokedPeer)) {
+                if (optimisticallyUnchokedPeer != null) {
+                    try {
+                        if (!preferredNeighbors.contains(optimisticallyUnchokedPeer)) {
+                            sendChokeMessage(optimisticallyUnchokedPeer);
+                        }
+                    } 
+                    
+                    catch (IOException e) {
+                        System.err.println("error choking previous optimistic peer: " + e.getMessage());
                     }
-                } catch (IOException e) {
-                    System.err.println("error choking previous optimistic peer: " + e.getMessage());
                 }
-            }
-            
-            optimisticallyUnchokedPeer = newOptimistic;
-            try {
-                sendUnchokeMessage(optimisticallyUnchokedPeer);
-                System.out.println("optimistically unchoked peer " + optimisticallyUnchokedPeer);
-                log("Peer " + peerID + " has the optimistically unchoked neighbor " + optimisticallyUnchokedPeer + ".");
-            } catch (IOException e) {
-                System.err.println("error unchoking optimistic peer: " + e.getMessage());
+                
+                optimisticallyUnchokedPeer = newOptimistic;
+                try {
+                    sendUnchokeMessage(optimisticallyUnchokedPeer);
+                    System.out.println("optimistically unchoked peer " + optimisticallyUnchokedPeer);
+                    log("Peer " + peerID + " has the optimistically unchoked neighbor " + optimisticallyUnchokedPeer + ".");
+                } 
+                
+                catch (IOException e) {
+                    System.err.println("error unchoking optimistic peer: " + e.getMessage());
+                }
             }
         }
     }
@@ -570,15 +598,12 @@ public class peerProcess {
                 isChokingPeer.put(peer.getPeerID(), true);
                 isPeerChokingUs.put(peer.getPeerID(), true);
                 
-                // Exchange bitfield messages
-                // Send our bitfield
                 byte[] bitfieldBytes = createBitfieldBytes();
                 Message bitfieldMsg = Message.bitfield(bitfieldBytes);
                 out.write(bitfieldMsg.toBytes());
                 out.flush();
                 System.out.println("sent bitfield to peer " + peer.getPeerID());
                 
-                // Receive their bitfield
                 Message receivedMsg = Message.read(in);
                 if (receivedMsg.getType() == MessageType.BITFIELD) {
                     processBitfield(peer.getPeerID(), receivedMsg.getPayload());
@@ -586,18 +611,10 @@ public class peerProcess {
                 }
                 
                 determineInterestAndNotify(peer.getPeerID());
-                
-                Message interestMsg = Message.read(in);
-                if (interestMsg.getType() == MessageType.INTERESTED) {
-                    peerInterestedInUs.put(peer.getPeerID(), true);
-                    System.out.println("peer " + peer.getPeerID() + " is INTERESTED");
-                } else if (interestMsg.getType() == MessageType.NOT_INTERESTED) {
-                    peerInterestedInUs.put(peer.getPeerID(), false);
-                    System.out.println("peer " + peer.getPeerID() + " is NOT_INTERESTED");
-                }
-                
                 startMessageHandler(peer.getPeerID());
-            } else {
+            } 
+            
+            else {
                 System.err.println("handshake failed: expected peer " + peer.getPeerID() + 
                                  ", got peer " + receivedHandshake.getPeerID());
                 socket.close();
@@ -646,18 +663,10 @@ public class peerProcess {
                 }
                 
                 determineInterestAndNotify(remotePeerID);
-                
-                Message interestMsg = Message.read(in);
-                if (interestMsg.getType() == MessageType.INTERESTED) {
-                    peerInterestedInUs.put(remotePeerID, true);
-                    System.out.println("peer " + remotePeerID + " is INTERESTED");
-                } else if (interestMsg.getType() == MessageType.NOT_INTERESTED) {
-                    peerInterestedInUs.put(remotePeerID, false);
-                    System.out.println("peer " + remotePeerID + " is NOT_INTERESTED");
-                }
-                
                 startMessageHandler(remotePeerID);
-            } else {
+            } 
+            
+            else {
                 System.err.println("unknown peer " + remotePeerID + " tried to connect");
                 socket.close();
             }
@@ -687,12 +696,17 @@ public class peerProcess {
     
     private void handleMessages(int peerID) {
         DataInputStream in = inputStreams.get(peerID);
-        if (in == null) return;
+        if (in == null) {
+            System.out.println("ERROR: input stream is null for peer " + peerID);
+            return;
+        }
         
+        System.out.println("Message handler started for peer " + peerID + ", waiting for messages...");
         try {
             while (true) {
                 Message msg = Message.read(in);
                 if (msg != null) {
+                    System.out.println("[" + this.peerID + "] received message type " + msg.getType() + " from peer " + peerID);
                     processMessage(peerID, msg);
                 }
             }
@@ -728,7 +742,7 @@ public class peerProcess {
                 
             case UNCHOKE:
                 isPeerChokingUs.put(peerID, false);
-                System.out.println("peer " + peerID + " UNCHOKED us");
+                System.out.println("[" + this.peerID + "] RECEIVED UNCHOKE from peer " + peerID);
                 log("Peer " + this.peerID + " is unchoked by " + peerID + ".");
                 requestPieceIfNeeded(peerID);
                 break;
@@ -737,6 +751,31 @@ public class peerProcess {
                 peerInterestedInUs.put(peerID, true);
                 System.out.println("peer " + peerID + " is INTERESTED");
                 log("Peer " + this.peerID + " received the 'interested' message from " + peerID + ".");
+                
+                if (hasFile == 1 && preferredNeighbors.size() < numberOfPreferredNeighbors) {
+                    if (isChokingPeer.getOrDefault(peerID, true)) {
+                        preferredNeighbors.add(peerID);
+                        
+                        try {
+                            sendUnchokeMessage(peerID);
+                            System.out.println("immediately added peer " + peerID + " as preferred neighbor");
+                            
+                            List<Integer> sortedList = new ArrayList<>(preferredNeighbors);
+                            Collections.sort(sortedList);
+                            StringBuilder neighborList = new StringBuilder();
+                            for (int i = 0; i < sortedList.size(); i++) {
+                                if (i > 0) neighborList.append(",");
+                                neighborList.append(sortedList.get(i));
+                            }
+
+                            log("Peer " + this.peerID + " has the preferred neighbors " + neighborList.toString() + ".");
+                        } 
+                        
+                        catch (IOException e) {
+                            System.err.println("error sending immediate UNCHOKE: " + e.getMessage());
+                        }
+                    }
+                }
                 break;
                 
             case NOT_INTERESTED:
