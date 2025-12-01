@@ -788,8 +788,13 @@ public class peerProcess {
                 if (msg.getPayload() != null && msg.getPayload().length >= 4) {
                     int pieceIndex = java.nio.ByteBuffer.wrap(msg.getPayload()).getInt();
                     updatePeerBitfield(peerID, pieceIndex);
-                    System.out.println("peer " + peerID + " has piece " + pieceIndex);
-                    log("Peer " + this.peerID + " received the 'have' message from " + peerID + " for the piece " + pieceIndex + ".");
+
+                    // Only print/log HAVE when it's relevant (i.e., we don't already have that piece)
+                    if (pieceIndex >= 0 && pieceIndex < numPieces && !bitfield[pieceIndex]) {
+                        System.out.println("peer " + peerID + " has piece " + pieceIndex);
+                        log("Peer " + this.peerID + " received the 'have' message from " + peerID + " for the piece " + pieceIndex + ".");
+                    }
+
                     determineInterestAndNotify(peerID);
                 }
                 break;
@@ -889,6 +894,9 @@ public class peerProcess {
             
             if (piecesCount == numPieces) {
                 log("Peer " + this.peerID + " has downloaded the complete file.");
+                System.out.println("Peer " + this.peerID + " has downloaded the complete file. Cleaning up and exiting.");
+                cleanup();
+                System.exit(0);
             }
             
             broadcastHave(pieceIndex);
