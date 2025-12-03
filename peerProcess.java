@@ -722,13 +722,13 @@ public class peerProcess {
         catch (java.io.EOFException e) {
             System.out.println("sent " + counter + " PIECES to peer " + peerID);
             System.out.println("[" + this.peerID + "] received message type REQUEST " + counter + " times from peer " + peerID);
-            System.out.println("[" + this.peerID + "] received message type HAVE " + (counter - 1) + " times from peer " + peerID);
+            System.out.println("[" + this.peerID + "] received message type HAVE " + (counter) + " times from peer " + peerID);
             System.out.println("connection closed by peer " + peerID);
         } 
         catch (java.net.SocketException e) {
             System.out.println("sent " + counter + " PIECES to peer " + peerID);
             System.out.println("[" + this.peerID + "] received message type REQUEST " + counter + " times from peer " + peerID);
-            System.out.println("[" + this.peerID + "] received message type HAVE " + (counter - 1) + " times from peer " + peerID);
+            System.out.println("[" + this.peerID + "] received message type HAVE " + (counter) + " times from peer " + peerID);
             System.out.println("socket closed for peer " + peerID);
         } 
         catch (IOException e) {
