@@ -695,6 +695,7 @@ public class peerProcess {
     }
     
     private void handleMessages(int peerID) {
+        boolean testing = true;
         DataInputStream in = inputStreams.get(peerID);
         if (in == null) {
             System.out.println("ERROR: input stream is null for peer " + peerID);
@@ -702,19 +703,32 @@ public class peerProcess {
         }
         
         System.out.println("Message handler started for peer " + peerID + ", waiting for messages...");
+        int counter = 0;
         try {
             while (true) {
                 Message msg = Message.read(in);
                 if (msg != null) {
-                    System.out.println("[" + this.peerID + "] received message type " + msg.getType() + " from peer " + peerID);
+                    if (msg.getType() == MessageType.REQUEST) {
+                        counter += 1;
+                    }
+                    if (msg.getType() != MessageType.REQUEST && msg.getType() != MessageType.HAVE){
+                        System.out.println("[" + this.peerID + "] received message type " + msg.getType() + " from peer " + peerID);
+                    }
+                    //System.out.println("[" + this.peerID + "] received message type " + msg.getType() + " from peer " + peerID);
                     processMessage(peerID, msg);
                 }
             }
         } 
         catch (java.io.EOFException e) {
+            System.out.println("sent " + counter + " PIECES to peer " + peerID);
+            System.out.println("[" + this.peerID + "] received message type REQUEST " + counter + " times from peer " + peerID);
+            System.out.println("[" + this.peerID + "] received message type HAVE " + (counter - 1) + " times from peer " + peerID);
             System.out.println("connection closed by peer " + peerID);
         } 
         catch (java.net.SocketException e) {
+            System.out.println("sent " + counter + " PIECES to peer " + peerID);
+            System.out.println("[" + this.peerID + "] received message type REQUEST " + counter + " times from peer " + peerID);
+            System.out.println("[" + this.peerID + "] received message type HAVE " + (counter - 1) + " times from peer " + peerID);
             System.out.println("socket closed for peer " + peerID);
         } 
         catch (IOException e) {
@@ -868,7 +882,7 @@ public class peerProcess {
                     Message pieceMsg = Message.piece(pieceIndex, pieceData);
                     out.write(pieceMsg.toBytes());
                     out.flush();
-                    System.out.println("sent PIECE " + pieceIndex + " to peer " + peerID);
+                    //System.out.println("sent PIECE " + pieceIndex + " to peer " + peerID);
                 }
             }
         } catch (IOException e) {
