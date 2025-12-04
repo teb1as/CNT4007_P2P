@@ -6,8 +6,8 @@ public class peerProcess {
     private int peerID;
     
     private int numberOfPreferredNeighbors;
-    private int unchokingInterval;
-    private int optimisticUnchokingInterval;
+    private double unchokingInterval;
+    private double optimisticUnchokingInterval;
     private String fileName;
     private int fileSize;
     private int pieceSize;
@@ -37,6 +37,7 @@ public class peerProcess {
     private Map<Integer, Long> downloadRates;
     private Map<Integer, Long> bytesReceivedThisInterval;
     private PrintWriter logWriter;
+    private volatile boolean shouldTerminate;
     
     public static void main(String[] args) {
         // check if user gave a peer id
@@ -71,6 +72,7 @@ public class peerProcess {
         this.optimisticallyUnchokedPeer = null;
         this.downloadRates = new HashMap<>();
         this.bytesReceivedThisInterval = new HashMap<>();
+        this.shouldTerminate = false;
         loadConfiguration();
         loadPeerInfo();
         initializeBitfield();
@@ -81,21 +83,21 @@ public class peerProcess {
     public void start() {
         System.out.println("=== PEER " + peerID + " STARTED!! ===");
         
-        System.out.println("minimal implementation for testing");
+        // System.out.println("minimal implementation for testing");
         System.out.println("peer ID: " + peerID);
-        // System.out.println("host: " + hostName + ":" + port);
-        // System.out.println("has file: " + (hasFile == 1 ? "yes" : "no"));
+        System.out.println("host: " + hostName + ":" + port);
+        System.out.println("has file: " + (hasFile == 1 ? "yes" : "no"));
         
-        // System.out.println("file name is " + fileName);
-        // System.out.println("file size is " + fileSize + " bytes");
-        // System.out.println("piece size is " + pieceSize + " bytes");
+        System.out.println("file name is " + fileName);
+        System.out.println("file size is " + fileSize + " bytes");
+        System.out.println("piece size is " + pieceSize + " bytes");
         
         int numPieces = (fileSize + pieceSize - 1) / pieceSize;
-        // System.out.println("number of pieces: " + numPieces);
+        System.out.println("number of pieces: " + numPieces);
         
-        // System.out.println("preferred neighbors: " + numberOfPreferredNeighbors);
-        // System.out.println("unchoking interval: " + unchokingInterval + " seconds");
-        // System.out.println("optimistic unchoking interval: " + optimisticUnchokingInterval + " seconds");
+        System.out.println("preferred neighbors: " + numberOfPreferredNeighbors);
+        System.out.println("unchoking interval: " + unchokingInterval + " seconds");
+        System.out.println("optimistic unchoking interval: " + optimisticUnchokingInterval + " seconds");
         
         // System.out.println("total peers in network: " + allPeers.size());
         
@@ -108,7 +110,7 @@ public class peerProcess {
             public void run() {
                 selectPreferredNeighbors();
             }
-        }, unchokingInterval * 1000, unchokingInterval * 1000);
+        }, (long)(unchokingInterval * 1000), (long)(unchokingInterval * 1000));
         
         Timer optimisticTimer = new Timer(true);
         optimisticTimer.scheduleAtFixedRate(new TimerTask() {
@@ -116,14 +118,22 @@ public class peerProcess {
             public void run() {
                 selectOptimisticallyUnchokedNeighbor();
             }
-        }, optimisticUnchokingInterval * 1000, optimisticUnchokingInterval * 1000);
+        }, (long)(optimisticUnchokingInterval * 1000), (long)(optimisticUnchokingInterval * 1000));
         
-        try {
-            Thread.sleep(120000); 
-        } 
-
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+        while (!shouldTerminate) {
+            try {
+                Thread.sleep(2000); // Check every 2 seconds
+                
+                if (allPeersHaveCompleted()) {
+                    shouldTerminate = true;
+                    break;
+                }
+            } 
+            
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
         }
         
         unchokingTimer.cancel();
@@ -148,10 +158,10 @@ public class peerProcess {
                         numberOfPreferredNeighbors = Integer.parseInt(parts[1]);
                         break;
                     case "UnchokingInterval":
-                        unchokingInterval = Integer.parseInt(parts[1]);
+                        unchokingInterval = Double.parseDouble(parts[1]);
                         break;
                     case "OptimisticUnchokingInterval":
-                        optimisticUnchokingInterval = Integer.parseInt(parts[1]);
+                        optimisticUnchokingInterval = Double.parseDouble(parts[1]);
                         break;
                     case "FileName":
                         fileName = parts[1];
@@ -166,7 +176,7 @@ public class peerProcess {
 
             }
 
-            // System.out.println("loaded configuration from Common.cfg");
+            System.out.println("loaded configuration from Common.cfg");
         } 
         
         catch (IOException e) {
@@ -209,7 +219,7 @@ public class peerProcess {
                 }
             }
 
-            // System.out.println("loaded peer info from PeerInfo.cfg");
+            System.out.println("loaded peer info from PeerInfo.cfg");
         } 
 
         catch (IOException e) {
@@ -353,11 +363,11 @@ public class peerProcess {
     }
     
     private void selectPreferredNeighbors() {
-        long intervalSeconds = unchokingInterval;
+        double intervalSeconds = unchokingInterval;
         
         for (Integer peerID : bytesReceivedThisInterval.keySet()) {
             long bytesReceived = bytesReceivedThisInterval.get(peerID);
-            long rate = bytesReceived / intervalSeconds;
+            long rate = (long)(bytesReceived / intervalSeconds);
             downloadRates.put(peerID, rate);
         }
         
@@ -537,7 +547,7 @@ public class peerProcess {
                     
                     while (true) {
                         Socket clientSocket = serverSocket.accept();
-                        System.out.println("accepted connection from " + clientSocket.getInetAddress());
+                        // System.out.println("accepted connection from " + clientSocket.getInetAddress());
                         handleIncomingConnection(clientSocket);
                     }
 
@@ -629,7 +639,7 @@ public class peerProcess {
     
     private void handleIncomingConnection(Socket socket) {
         try {
-            System.out.println("handling incoming connection from " + socket.getInetAddress());
+            // System.out.println("handling incoming connection from " + socket.getInetAddress());
             
             DataInputStream in = new DataInputStream(socket.getInputStream());
             Handshake receivedHandshake = Handshake.read(in);
@@ -695,40 +705,26 @@ public class peerProcess {
     }
     
     private void handleMessages(int peerID) {
-        boolean testing = true;
         DataInputStream in = inputStreams.get(peerID);
         if (in == null) {
-            System.out.println("ERROR: input stream is null for peer " + peerID);
+            // System.out.println("ERROR: input stream is null for peer " + peerID);
             return;
         }
         
-        System.out.println("Message handler started for peer " + peerID + ", waiting for messages...");
-        int counter = 0;
+        // System.out.println("Message handler started for peer " + peerID + ", waiting for messages...");
         try {
             while (true) {
                 Message msg = Message.read(in);
                 if (msg != null) {
-                    if (msg.getType() == MessageType.REQUEST) {
-                        counter += 1;
-                    }
-                    if (msg.getType() != MessageType.REQUEST && msg.getType() != MessageType.HAVE){
-                        System.out.println("[" + this.peerID + "] received message type " + msg.getType() + " from peer " + peerID);
-                    }
                     //System.out.println("[" + this.peerID + "] received message type " + msg.getType() + " from peer " + peerID);
                     processMessage(peerID, msg);
                 }
             }
         } 
         catch (java.io.EOFException e) {
-            System.out.println("sent " + counter + " PIECES to peer " + peerID);
-            System.out.println("[" + this.peerID + "] received message type REQUEST " + counter + " times from peer " + peerID);
-            System.out.println("[" + this.peerID + "] received message type HAVE " + (counter) + " times from peer " + peerID);
             System.out.println("connection closed by peer " + peerID);
         } 
         catch (java.net.SocketException e) {
-            System.out.println("sent " + counter + " PIECES to peer " + peerID);
-            System.out.println("[" + this.peerID + "] received message type REQUEST " + counter + " times from peer " + peerID);
-            System.out.println("[" + this.peerID + "] received message type HAVE " + (counter) + " times from peer " + peerID);
             System.out.println("socket closed for peer " + peerID);
         } 
         catch (IOException e) {
@@ -756,7 +752,7 @@ public class peerProcess {
                 
             case UNCHOKE:
                 isPeerChokingUs.put(peerID, false);
-                System.out.println("[" + this.peerID + "] RECEIVED UNCHOKE from peer " + peerID);
+                // System.out.println("[" + this.peerID + "] RECEIVED UNCHOKE from peer " + peerID);
                 log("Peer " + this.peerID + " is unchoked by " + peerID + ".");
                 requestPieceIfNeeded(peerID);
                 break;
@@ -772,7 +768,7 @@ public class peerProcess {
                         
                         try {
                             sendUnchokeMessage(peerID);
-                            System.out.println("immediately added peer " + peerID + " as preferred neighbor");
+                            // System.out.println("immediately added peer " + peerID + " as preferred neighbor");
                             
                             List<Integer> sortedList = new ArrayList<>(preferredNeighbors);
                             Collections.sort(sortedList);
@@ -802,13 +798,8 @@ public class peerProcess {
                 if (msg.getPayload() != null && msg.getPayload().length >= 4) {
                     int pieceIndex = java.nio.ByteBuffer.wrap(msg.getPayload()).getInt();
                     updatePeerBitfield(peerID, pieceIndex);
-
-                    // Only print/log HAVE when it's relevant (i.e., we don't already have that piece)
-                    if (pieceIndex >= 0 && pieceIndex < numPieces && !bitfield[pieceIndex]) {
-                        System.out.println("peer " + peerID + " has piece " + pieceIndex);
-                        log("Peer " + this.peerID + " received the 'have' message from " + peerID + " for the piece " + pieceIndex + ".");
-                    }
-
+                    //System.out.println("peer " + peerID + " has piece " + pieceIndex);
+                    log("Peer " + this.peerID + " received the 'have' message from " + peerID + " for the piece " + pieceIndex + ".");
                     determineInterestAndNotify(peerID);
                 }
                 break;
@@ -882,7 +873,7 @@ public class peerProcess {
                     Message pieceMsg = Message.piece(pieceIndex, pieceData);
                     out.write(pieceMsg.toBytes());
                     out.flush();
-                    //System.out.println("sent PIECE " + pieceIndex + " to peer " + peerID);
+                    System.out.println("sent PIECE " + pieceIndex + " to peer " + peerID);
                 }
             }
         } catch (IOException e) {
@@ -903,14 +894,14 @@ public class peerProcess {
                 if (hasPiece) piecesCount++;
             }
             
-            System.out.println("downloaded piece " + pieceIndex + " from peer " + peerID);
+            //System.out.println("downloaded piece " + pieceIndex + " from peer " + peerID);
             log("Peer " + this.peerID + " has downloaded the piece " + pieceIndex + " from " + peerID + ". Now the number of pieces it has is " + piecesCount + ".");
             
             if (piecesCount == numPieces) {
                 log("Peer " + this.peerID + " has downloaded the complete file.");
-                System.out.println("Peer " + this.peerID + " has downloaded the complete file. Cleaning up and exiting.");
-                cleanup();
-                System.exit(0);
+                if (allPeersHaveCompleted()) {
+                    shouldTerminate = true;
+                }
             }
             
             broadcastHave(pieceIndex);
@@ -973,6 +964,44 @@ public class peerProcess {
             raf.seek(offset);
             raf.write(data);
         }
+    }
+    
+    private boolean hasAllPieces() {
+        for (int i = 0; i < numPieces; i++) {
+            if (!bitfield[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    private boolean allPeersHaveCompleted() {
+        if (!hasAllPieces()) {
+            return false;
+        }
+        
+        if (peerBitfields.isEmpty() || peerBitfields.keySet().size() == 1 && peerBitfields.containsKey(this.peerID)) {
+            return false;
+        }
+        
+        for (Integer peerID : peerBitfields.keySet()) {
+            if (peerID == this.peerID) {
+                continue;
+            }
+            
+            boolean[] peerBitfield = peerBitfields.get(peerID);
+            if (peerBitfield == null) {
+                continue;
+            }
+            
+            for (int i = 0; i < numPieces; i++) {
+                if (!peerBitfield[i]) {
+                    return false;
+                }
+            }
+        }
+        
+        return true;
     }
     
     private void cleanup() {

@@ -1,0 +1,30 @@
+P2P File Sharing Project CNT4007_P2P
+
+Video link: https://www.youtube.com/watch?v=yND3EiZtRyo
+
+
+Team Members:
+Matthew Brown 
+- TCP server startup
+- Peer connection logic
+- Message handler threads
+- Presentation
+- Choking/unchoking
+- File transfer operations
+- Message types 
+- Main program structure and start() method
+- Presentation
+
+Tavian Douge
+- Handshake
+- Bitfield initialization and management
+- Completion and termination logic
+- Preferred neighbor selection
+- File transfer operations
+
+ddcvb
+- Logging and terminal mechanisms
+- Optimistic unchoking
+- Bitfield tracking
+- Testing and validation
+- Config file reading
